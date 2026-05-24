@@ -1,0 +1,6 @@
+{
+  "name": "AI Student productivity Assistant",
+  "description": "An interactive, voice-guided AI Virtual Student Assistant and Productivity Management System designed to help students maintain learning discipline, combat social media distraction, plan studying, and gamify academic success.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
