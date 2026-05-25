@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
@@ -18,7 +18,7 @@ function getAiClient(): GoogleGenAI {
   if (!aiClient) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      console.warn("WARNING: GEMINI_API_KEY environment variable is not set. Using placeholder mode.");
+      console.warn("WARNING: GEMINI_API_KEY environment variable is not set.");
     }
     aiClient = new GoogleGenAI({
       apiKey: apiKey || "MOCK_KEY",
@@ -32,19 +32,7 @@ function getAiClient(): GoogleGenAI {
   return aiClient;
 }
 
-// API Routes
-import express from 'express';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-const app = express();
-const port = process.env.PORT || 3000;
-
-app.use(express.json());
-
-// Root route - Yeh "Not Found" error fix karega
+// ============= ROOT ROUTE (Fixes 404) =============
 app.get("/", (req, res) => {
   res.json({
     name: "JARVIS Assistant",
@@ -52,66 +40,38 @@ app.get("/", (req, res) => {
     status: "🟢 Running Successfully!",
     message: "Your AI assistant is live",
     endpoints: {
-      health: "/api/health",
-      chat: "/api/chat (POST request)"
+      health: "GET /api/health",
+      chat: "POST /api/gemini/chat",
+      schedule: "POST /api/gemini/schedule",
+      behavior: "POST /api/gemini/behavior"
     }
   });
 });
 
-// Health check route
+// ============= HEALTH CHECK ROUTE =============
 app.get("/api/health", async (req, res) => {
-  try {
-    res.status(200).json({
-      status: "success",
-      message: "JARVIS is alive!",
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
+  const apiKey = process.env.GEMINI_API_KEY;
+  let geminiStatus = "not_tested";
+  let geminiError = null;
 
-// Chat route (aapka JARVIS yahan hoga)
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { message } = req.body;
-    
-    if (!message) {
-      return res.status(400).json({ error: "Message is required" });
-    }
-    
-    // Yahan aapka Gemini API code aayega
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-    const result = await model.generateContent(message);
-    const response = await result.response;
-    const text = response.text();
-    
-    res.json({ reply: text });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Server start
-app.listen(port, () => {
-  console.log(`🚀 JARVIS running on port ${port}`);
-});
+  // Test Gemini API
+  if (apiKey && apiKey !== "MOCK_KEY") {
+    try {
+      const ai = getAiClient();
+      const response = await ai.models.generateContent({
+        model: "gemini-2.0-flash-lite",
+        contents: "Reply with just the word 'OK'",
+      });
       geminiStatus = `success: ${response.text?.substring(0, 50)}`;
-    } else {
-      geminiStatus = "missing_api_key_env_var";
+    } catch (err: any) {
+      geminiStatus = "failed";
+      geminiError = {
+        message: err.message,
+        name: err.name,
+      };
     }
-  } catch (err: any) {
-    geminiStatus = "failed";
-    geminiError = {
-      message: err.message,
-      stack: err.stack,
-      name: err.name,
-      raw: err
-    };
+  } else {
+    geminiStatus = "missing_api_key_env_var";
   }
 
   res.json({
@@ -124,14 +84,13 @@ app.listen(port, () => {
   });
 });
 
-// Endpoint: AI Chat and Speech generator prompts
+// ============= AI CHAT ROUTE =============
 app.post("/api/gemini/chat", async (req, res) => {
   const { message, systemPrompt, conversationHistory, attachment } = req.body;
   
   try {
     const ai = getAiClient();
     
-    // Default system instruction focuses on being an empathetic, strict but supportive productivity coach
     const systemInstruction = systemPrompt || 
       "You are a futuristic Virtual Student Assistant and high-discipline Productivity Coach. " +
       "Maintain an ultra-supportive, encouraging, yet absolute discipline-oriented personality. " +
@@ -140,7 +99,6 @@ app.post("/api/gemini/chat", async (req, res) => {
 
     const contents = [];
     if (conversationHistory && Array.isArray(conversationHistory)) {
-      // Append historical messages
       for (const turn of conversationHistory) {
         contents.push({
           role: turn.role === "assistant" ? "model" : "user",
@@ -149,23 +107,19 @@ app.post("/api/gemini/chat", async (req, res) => {
       }
     }
 
-    // Build parts for the user prompt
     const userParts: any[] = [];
     let finalMessage = message;
 
     if (attachment) {
       if (attachment.type.startsWith("image/")) {
-        // If it's an image, pass it as modal part inlineData
         userParts.push({
           inlineData: {
             mimeType: attachment.type,
-            data: attachment.data // base64 payload
+            data: attachment.data
           }
         });
-        // Introduce image attachment context
         finalMessage = `[User has uploaded a screenshot/image study note named "${attachment.name}" which you see attached. Provide encouraging feedback/answers about it!] ${message}`;
       } else {
-        // If it's a file, decode text documents (logs, code, custom tables, text, CSV, markdown, simple PDFs)
         try {
           const decodedText = Buffer.from(attachment.data, "base64").toString("utf-8");
           finalMessage = `[Attached Documents/Classroom Homework file: ${attachment.name}]\n=== TEXT FILE CONTENT ===\n${decodedText}\n========================\n\nUser Question/Goal: ${message}`;
@@ -179,7 +133,7 @@ app.post("/api/gemini/chat", async (req, res) => {
     contents.push({ role: "user", parts: userParts });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
+      model: "gemini-2.0-flash-lite",
       contents: contents,
       config: {
         systemInstruction: systemInstruction,
@@ -198,7 +152,7 @@ app.post("/api/gemini/chat", async (req, res) => {
   }
 });
 
-// Endpoint: Smart AI Scheduling Generator
+// ============= SMART SCHEDULING ROUTE =============
 app.post("/api/gemini/schedule", async (req, res) => {
   const { dailyGoals, examDates, learningStyle, sleepHours, subjectPreferences } = req.body;
 
@@ -220,7 +174,7 @@ Return a JSON array of events representing the ideal study routine. Include brea
 `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
+      model: "gemini-2.0-flash-lite",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -249,16 +203,14 @@ Return a JSON array of events representing the ideal study routine. Include brea
       error: "Could not generate AI schedule", 
       details: error.message,
       fallback: [
-        { title: "Deep Work Core Study", time: "09:00 AM - 10:30 AM", type: "study", description: "Focus on heaviest scientific/mathematical topics. Write summaries.", focusTip: "Keep all browser tabs closed!" },
-        { title: "Active Mental Recovery Break", time: "10:30 AM - 10:45 AM", type: "break", description: "Stand up, drink a cold glass of water, and stretch. No phone!", focusTip: "Physical movement boosts circulation." },
-        { title: "Syllabus Exercise & Revision", time: "10:45 AM - 12:15 PM", type: "exam-prep", description: "Do mock test templates, active flashcard reviews.", focusTip: "Test yourself instead of just reading." },
-        { title: "Mindfulness Reset Session", time: "12:15 PM - 12:30 PM", type: "wellness", description: "Short breath awareness reset. Balance stressors.", focusTip: "Deep breathing controls adrenal release." }
+        { title: "Deep Work Core Study", time: "09:00 AM - 10:30 AM", type: "study", description: "Focus on heaviest scientific/mathematical topics.", focusTip: "Keep all browser tabs closed!" },
+        { title: "Active Mental Recovery Break", time: "10:30 AM - 10:45 AM", type: "break", description: "Stand up and stretch. No phone!", focusTip: "Physical movement boosts circulation." }
       ]
     });
   }
 });
 
-// Endpoint: Behavioral Procrastination Advisor
+// ============= BEHAVIORAL ADVISOR ROUTE =============
 app.post("/api/gemini/behavior", async (req, res) => {
   const { streakCount, missedTasksCount, scrollingAlertCount, studyMinutes, moodRating } = req.body;
 
@@ -267,21 +219,21 @@ app.post("/api/gemini/behavior", async (req, res) => {
     const prompt = `Analyze the student's metrics:
 Streak Count: ${streakCount || 0} consecutive days
 Missed Planned Tasks: ${missedTasksCount || 0} in last 2 days
-Distraction Scrolling Incidents: ${scrollingAlertCount || 0} reels/feed blocks hit today
+Distraction Scrolling Incidents: ${scrollingAlertCount || 0}
 Study Minutes Completed: ${studyMinutes || 0} minutes today
 Mood Rating: ${moodRating || "Neutral"}
 
-Provide a discipline report card. Return JSON with format:
+Return JSON:
 {
-  "disciplineScore": number (1-100 scale),
-  "procrastinationProbability": string ("Low", "Moderate", "Critical"),
+  "disciplineScore": number (1-100),
+  "procrastinationProbability": "Low" or "Moderate" or "Critical",
   "distractionTriggerAnalysis": string,
-  "actionSteps": array of strings (concrete actions to double concentration immediately),
-  "motivationalNudge": string (a strict yet moving quote tailored to their current state)
+  "actionSteps": array of strings,
+  "motivationalNudge": string
 }`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
+      model: "gemini-2.0-flash-lite",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -312,19 +264,18 @@ Provide a discipline report card. Return JSON with format:
       fallback: {
         disciplineScore: 78,
         procrastinationProbability: "Moderate",
-        distractionTriggerAnalysis: "Slight surge in reels Scrolling and feed habits. Mood state affects early study hour consistency.",
+        distractionTriggerAnalysis: "Slight surge in scrolling habits.",
         actionSteps: [
-          "Activate standard Detox Block on study devices.",
-          "Write down one single topic card limit and finish it before lunch.",
-          "Keep physical phone out of arms reach entirely."
+          "Activate Detox Block on study devices.",
+          "Keep physical phone out of arms reach."
         ],
-        motivationalNudge: "The price of discipline is always less than the pain of regret. Choose your pain wisely."
+        motivationalNudge: "The price of discipline is always less than the pain of regret."
       }
     });
   }
 });
 
-// Vite Setup for Dev & Production Static Serving
+// ============= VITE & STATIC SERVING =============
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -341,7 +292,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[FULLSTACK CORE] Live on host 0.0.0.0, port ${PORT}`);
+    console.log(`[JARVIS] Live on port ${PORT}`);
   });
 }
 
