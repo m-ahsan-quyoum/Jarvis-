@@ -34,17 +34,19 @@ function getAiClient(): GoogleGenAI {
 
 // API Routes
 app.get("/api/health", async (req, res) => {
-  let geminiStatus = "untested";
-  let geminiError = null;
-  const apiKey = process.env.GEMINI_API_KEY;
-
   try {
-    if (apiKey) {
-      const ai = getAiClient();
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite",
-        contents: "Hi",
-      });
+    res.status(200).json({
+      status: "success",
+      message: "JARVIS is alive and running!",
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
       geminiStatus = `success: ${response.text?.substring(0, 50)}`;
     } else {
       geminiStatus = "missing_api_key_env_var";
