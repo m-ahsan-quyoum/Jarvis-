@@ -33,11 +33,37 @@ function getAiClient(): GoogleGenAI {
 }
 
 // API Routes
+import express from 'express';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// Root route - Yeh "Not Found" error fix karega
+app.get("/", (req, res) => {
+  res.json({
+    name: "JARVIS Assistant",
+    version: "1.0.0",
+    status: "🟢 Running Successfully!",
+    message: "Your AI assistant is live",
+    endpoints: {
+      health: "/api/health",
+      chat: "/api/chat (POST request)"
+    }
+  });
+});
+
+// Health check route
 app.get("/api/health", async (req, res) => {
   try {
     res.status(200).json({
       status: "success",
-      message: "JARVIS is alive and running!",
+      message: "JARVIS is alive!",
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -46,6 +72,33 @@ app.get("/api/health", async (req, res) => {
       message: error.message
     });
   }
+});
+
+// Chat route (aapka JARVIS yahan hoga)
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { message } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+    
+    // Yahan aapka Gemini API code aayega
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const result = await model.generateContent(message);
+    const response = await result.response;
+    const text = response.text();
+    
+    res.json({ reply: text });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Server start
+app.listen(port, () => {
+  console.log(`🚀 JARVIS running on port ${port}`);
 });
       geminiStatus = `success: ${response.text?.substring(0, 50)}`;
     } else {
